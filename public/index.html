@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MiniMail</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; }
+    header { background: #d93025; color: white; padding: 10px 20px; font-size: 20px; display:flex; justify-content:space-between; align-items:center; }
+
+    /* Auth forms */
+    #auth { max-width: 400px; margin: 50px auto; background: white; border-radius: 6px; padding: 20px; }
+    #auth input { width: 100%; padding: 8px; margin: 6px 0; }
+    #auth button { padding: 10px; background: #d93025; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; }
+    #auth .switch { margin-top: 10px; text-align: center; cursor: pointer; color: blue; }
+    #auth p.error { color: red; }
+
+    /* Dashboard */
+    #dashboard { display: none; }
+    nav { display: flex; background: #eee; padding: 10px; }
+    nav button { margin-right: 10px; padding: 8px 12px; border: none; cursor: pointer; border-radius: 4px; }
+    nav button.active { background: #d93025; color: white; }
+
+    #search-bar { margin-left:auto; }
+    #search-bar input { padding: 6px; border:1px solid #ccc; border-radius:4px; }
+
+    #email-list { list-style: none; margin: 0; padding: 0; }
+    #email-list li {
+      padding: 12px;
+      border-bottom: 1px solid #ddd;
+      cursor: pointer;
+      background: white;
+    }
+    #email-list li.unread { font-weight: bold; }
+    #email-list li:hover { background: #f0f0f0; }
+
+    #modal {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center;
+    }
+    #modal-content {
+      background: white; padding: 20px; border-radius: 6px; width: 500px; max-width: 90%;
+    }
+    #modal-content h2 { margin-top: 0; }
+    #modal-actions button { margin-right: 8px; }
+    #close-modal { float: right; cursor: pointer; color: red; }
+
+    #compose { padding: 15px; background: white; margin: 15px; border-radius: 6px; }
+    #compose input, #compose textarea { width: 100%; padding: 8px; margin: 6px 0; }
+    #compose button { padding: 10px 15px; background: #d93025; color: white; border: none; border-radius: 4px; cursor: pointer; }
+
+    #logout-btn { background:white; color:#d93025; border:1px solid #d93025; padding:6px 12px; border-radius:4px; cursor:pointer; }
+    #logout-btn:hover { background:#d93025; color:white; }
+  </style>
+</head>
+<body>
+  <header>
+    <span>📧 MiniMail</span>
+    <button id="logout-btn" style="display:none;" onclick="logout()">Logout</button>
+  </header>
+
+  <!-- AUTH -->
+  <div id="auth">
+    <h2 id="auth-title">Login</h2>
+    <input id="auth-email" type="email" placeholder="Email">
+    <input id="auth-password" type="password" placeholder="Password">
+    <button onclick="submitAuth()">Login</button>
+    <p id="auth-error" class="error"></p>
+    <div class="switch" onclick="toggleAuth()">Don’t have an account? Register</div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard">
+    <div id="compose">
+      <h3>Compose Email</h3>
+      <input id="from" placeholder="From (your email)" disabled>
+      <input id="to" placeholder="To">
+      <input id="subject" placeholder="Subject">
+      <textarea id="body" rows="4" placeholder="Write your message..."></textarea>
+      <input id="attachments" type="file" multiple>
+      <button onclick="sendEmail()">Send</button>
+    </div>
+
+    <nav>
+      <button id="inbox-tab" class="active" onclick="loadInbox()">Inbox</button>
+      <button id="outbox-tab" onclick="loadOutbox()">Outbox</button>
+      <button id="trash-tab" onclick="loadTrash()">Trash</button>
+      <div id="search-bar"><input id="search" placeholder="Search..." oninput="renderEmails()"></div>
+    </nav>
+
+    <ul id="email-list"></ul>
+  </div>
+
+  <!-- MODAL -->
+  <div id="modal">
+    <div id="modal-content">
+      <span id="close-modal" onclick="closeModal()">✖</span>
+      <h2 id="modal-subject"></h2>
+      <p><strong>From:</strong> <span id="modal-from"></span></p>
+      <p><strong>To:</strong> <span id="modal-to"></span></p>
+      <p><strong>Date:</strong> <span id="modal-date"></span></p>
+      <p><strong>Body:</strong></p>
+      <p id="modal-body"></p>
+      <div id="modal-attachments"></div>
+      <div id="modal-actions">
+        <button onclick="replyEmail()">Reply</button>
+        <button onclick="forwardEmail()">Forward</button>
+        <button onclick="deleteEmail()">Delete</button>
+        <button onclick="restoreEmail()">Restore</button>
+        <button onclick="permaDeleteEmail()">Delete Forever</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentUser = "";
+    let emails = [];
+    let currentTab = "inbox";
+    let isRegister = false;
+    let currentEmail = null;
+
+    function toggleAuth() {
+      isRegister = !isRegister;
+      document.getElementById("auth-title").innerText = isRegister ? "Register" : "Login";
+      document.querySelector("#auth button").innerText = isRegister ? "Register" : "Login";
+      document.querySelector("#auth .switch").innerText = isRegister ? "Already have an account? Login" : "Don’t have an account? Register";
+      document.getElementById("auth-error").innerText = "";
+    }
+
+    async function submitAuth() {
+      const email = document.getElementById("auth-email").value;
+      const password = document.getElementById("auth-password").value;
+      const url = isRegister ? "/register" : "/login";
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        currentUser = email;
+        document.getElementById("from").value = currentUser;
+        document.getElementById("auth").style.display = "none";
+        document.getElementById("dashboard").style.display = "block";
+        document.getElementById("logout-btn").style.display = "inline-block";
+        loadInbox();
+      } else {
+        document.getElementById("auth-error").innerText = data.error || (isRegister ? "Registration failed" : "Login failed");
+      }
+    }
+
+    function logout() {
+      currentUser = "";
+      emails = [];
+      document.getElementById("dashboard").style.display = "none";
+      document.getElementById("auth").style.display = "block";
+      document.getElementById("logout-btn").style.display = "none";
+      document.getElementById("auth-email").value = "";
+      document.getElementById("auth-password").value = "";
+    }
+
+    async function loadInbox() {
+      setActiveTab("inbox");
+      const res = await fetch(`/inbox/${currentUser}`);
+      emails = await res.json();
+      renderEmails();
+    }
+
+    async function loadOutbox() {
+      setActiveTab("outbox");
+      const res = await fetch(`/outbox/${currentUser}`);
+      emails = await res.json();
+      renderEmails();
+    }
+
+    async function loadTrash() {
+      setActiveTab("trash");
+      const res = await fetch(`/trash/${currentUser}`);
+      emails = await res.json();
+      renderEmails();
+    }
+
+    function setActiveTab(tab) {
+      currentTab = tab;
+      ["inbox","outbox","trash"].forEach(t => document.getElementById(t+"-tab").classList.remove("active"));
+      document.getElementById(tab+"-tab").classList.add("active");
+    }
+
+    function renderEmails() {
+      const list = document.getElementById("email-list");
+      list.innerHTML = "";
+      const search = document.getElementById("search").value.toLowerCase();
+      emails.filter(e => e.subject.toLowerCase().includes(search) || e.from.toLowerCase().includes(search) || e.body.toLowerCase().includes(search))
+        .forEach(email => {
+          const li = document.createElement("li");
+          li.className = email.read ? "" : "unread";
+          li.innerHTML = `<strong>${email.subject}</strong> - ${email.from}`;
+          li.onclick = () => openModal(email);
+          list.appendChild(li);
+        });
+    }
+
+    function openModal(email) {
+      currentEmail = email;
+      email.read = true;
+      document.getElementById("modal-subject").innerText = email.subject;
+      document.getElementById("modal-from").innerText = email.from;
+      document.getElementById("modal-to").innerText = email.to;
+      document.getElementById("modal-date").innerText = new Date(email.date).toLocaleString();
+      document.getElementById("modal-body").innerText = email.body;
+
+      const attachDiv = document.getElementById("modal-attachments");
+      attachDiv.innerHTML = "";
+      if (email.attachments && email.attachments.length > 0) {
+        const list = document.createElement("ul");
+        email.attachments.forEach(a => {
+          const li = document.createElement("li");
+          li.innerHTML = `<a href="${a.path}" target="_blank">${a.filename}</a>`;
+          list.appendChild(li);
+        });
+        attachDiv.innerHTML = "<p><strong>Attachments:</strong></p>";
+        attachDiv.appendChild(list);
+      }
+
+      // Show/hide action buttons based on tab
+      document.querySelector("button[onclick='deleteEmail()']").style.display = currentTab === "trash" ? "none" : "inline-block";
+      document.querySelector("button[onclick='restoreEmail()']").style.display = currentTab === "trash" ? "inline-block" : "none";
+      document.querySelector("button[onclick='permaDeleteEmail()']").style.display = currentTab === "trash" ? "inline-block" : "none";
+
+      document.getElementById("modal").style.display = "flex";
+      renderEmails();
+    }
+
+    function closeModal() {
+      document.getElementById("modal").style.display = "none";
+    }
+
+    async function sendEmail() {
+      const from = currentUser;
+      const to = document.getElementById("to").value;
+      const subject = document.getElementById("subject").value;
+      const body = document.getElementById("body").value;
+      const files = document.getElementById("attachments").files;
+
+      const formData = new FormData();
+      formData.append("from", from);
+      formData.append("to", to);
+      formData.append("subject", subject);
+      formData.append("body", body);
+      for (let i = 0; i < files.length; i++) {
+        formData.append("attachments", files[i]);
+      }
+
+      const res = await fetch("/send", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.success) {
+        alert("Email sent!");
+        document.getElementById("attachments").value = "";
+        document.getElementById("to").value = "";
+        document.getElementById("subject").value = "";
+        document.getElementById("body").value = "";
+        loadOutbox();
+      } else {
+        alert("Error sending email");
+      }
+    }
+
+    function replyEmail() {
+      if (!currentEmail) return;
+      document.getElementById("to").value = currentEmail.from;
+      document.getElementById("subject").value = "Re: " + currentEmail.subject;
+      document.getElementById("body").value = `\n\n--- Original Message ---\n${currentEmail.body}`;
+      closeModal();
+    }
+
+    function forwardEmail() {
+      if (!currentEmail) return;
+      document.getElementById("to").value = "";
+      document.getElementById("subject").value = "Fwd: " + currentEmail.subject;
+      document.getElementById("body").value = `\n\n--- Forwarded Message ---\nFrom: ${currentEmail.from}\nTo: ${currentEmail.to}\nDate: ${new Date(currentEmail.date).toLocaleString()}\n\n${currentEmail.body}`;
+      closeModal();
+    }
+
+    async function deleteEmail() {
+      if (!currentEmail) return;
+      await fetch(`/delete/${currentEmail.id}/${currentUser}`, { method: "POST" });
+      closeModal();
+      if (currentTab === "inbox") loadInbox();
+      if (currentTab === "outbox") loadOutbox();
+    }
+
+    async function restoreEmail() {
+      if (!currentEmail) return;
+      await fetch(`/restore/${currentEmail.id}/${currentUser}`, { method: "POST" });
+      closeModal();
+      loadTrash();
+    }
+
+    async function permaDeleteEmail() {
+      if (!currentEmail) return;
+      if (!confirm("Permanently delete this email?")) return;
+      await fetch(`/permadelete/${currentEmail.id}`, { method: "DELETE" });
+      closeModal();
+      loadTrash();
+    }
+  </script>
+</body>
+</html>
